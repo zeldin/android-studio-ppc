@@ -81,7 +81,7 @@ fi
 
 if test -d platform/util/src; then :; else
   msg 'Extracting platform sources from repository'
-  ( cd "$IDEA_REPO_DIR" && git archive --format=tar "$IDEA_SHA1" -- platform/util/src ) | tar xf -
+  ( cd "$IDEA_REPO_DIR" && git archive --format=tar "$IDEA_SHA1" -- platform/util/src platform/platform-impl/src ) | tar xf -
 fi
 
 if test -f platform/util/src/com/intellij/openapi/util/io/FileSystemUtil.java.orig; then :; else
@@ -134,6 +134,24 @@ if test -f platform/util/src/com/intellij/openapi/util/io/FileSystemUtil.java.or
 EOF
 fi
 
+if test -f platform/platform-impl/src/com/intellij/openapi/vfs/impl/local/FileWatcher.java.orig; then :; else
+  msg 'Patching FileWatcher class'
+  patch -b -z .orig platform/platform-impl/src/com/intellij/openapi/vfs/impl/local/FileWatcher.java <<'EOF'
+--- platform/platform-impl/src/com/intellij/openapi/vfs/impl/local/FileWatcher.java.orig	2015-02-13 23:54:40.000000000 +0100
++++ platform/platform-impl/src/com/intellij/openapi/vfs/impl/local/FileWatcher.java	2015-02-13 23:54:46.000000000 +0100
+@@ -120,9 +120,6 @@
+         }
+       });
+     }
+-    else if (!isUpToDate(myExecutable)) {
+-      notifyOnFailure(ApplicationBundle.message("watcher.exe.outdated"), null);
+-    }
+     else {
+       try {
+         startupProcess(false);
+EOF
+fi
+
 test -d classes || mkdir classes
 JARS=
 for jar in "$STUDIO_DIR"/lib/*.jar; do
@@ -145,6 +163,12 @@ $JAVAC -d classes -cp "$JARS" platform/util/src/com/intellij/openapi/util/io/Fil
 
 msg 'Injecting fixed classfile into util.jar'
 $JAR uf "$STUDIO_DIR"/lib/util.jar -C classes 'com/intellij/openapi/util/io/FileSystemUtil$JnaUnixMediatorImpl.class'
+
+msg 'Compiling fixed FileWatcher class'
+$JAVAC -d classes -cp "$JARS" platform/platform-impl/src/com/intellij/openapi/vfs/impl/local/FileWatcher.java
+
+msg 'Injecting fixed classfile into idea.jar'
+$JAR uf "$STUDIO_DIR"/lib/idea.jar -C classes 'com/intellij/openapi/vfs/impl/local/FileWatcher.class'
 
 if test -d native/fsNotifier/linux; then :; else
   msg 'Extracting fsNotifier sources from repository'
