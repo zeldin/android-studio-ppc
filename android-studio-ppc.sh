@@ -15,9 +15,13 @@ IDEA_REPO_URL='https://github.com/JetBrains/intellij-community.git'
 IDEA_SHA1=a223e4319777c686f831b939aab424877d4333ce
 IDEA_REPO_DIR='idea.git'
 
+PUREJAVACOMM_REPO_URL='https://github.com/traff/purejavacomm'
+PUREJAVACOMM_REPO_DIR='purejavacomm.git'
+PUREJAVACOMM_SHA1=bcc9058f98b5b00cdbe31e0ea6589f1be465378e
+
 PTY4J_REPO_URL='https://github.com/traff/pty4j.git'
 PTY4J_REPO_DIR='pty4j.git'
-PTY4J_SHA1=c5cc21726b80a238bec54db4f83e82cc09fd3909
+PTY4J_SHA1=0501fed201bcb2099719c51c863536907ed1184c
 
 JAVAC="javac"
 JAR="jar"
@@ -192,6 +196,52 @@ fi
 msg 'Installing breakgen'
 cp native/breakgen/libbreakgen.so native/breakgen/libbreakgen64.so "$STUDIO_DIR"/bin/
 
+if test -d "$PUREJAVACOMM_REPO_DIR"; then :; else
+  msg 'Cloning purejavacomm repository'
+  git clone --bare "$PUREJAVACOMM_REPO_URL" "$PUREJAVACOMM_REPO_DIR"
+fi
+
+if test -d purejavacomm/src; then :; else
+  msg 'Extracting jtermios sources from repository'
+  ( cd "$PUREJAVACOMM_REPO_DIR" && git archive --format=tar --prefix=purejavacomm/ "$PUREJAVACOMM_SHA1" -- src/jtermios ) | tar xf -
+fi
+
+if test -f purejavacomm/src/jtermios/linux/JTermiosImpl.java.orig; then :; else
+  msg 'Patching JTermiosImpl.java'
+  patch -b -z .orig purejavacomm/src/jtermios/linux/JTermiosImpl.java <<'EOF'
+--- a/src/jtermios/linux/JTermiosImpl.java
++++ b/src/jtermios/linux/JTermiosImpl.java
+@@ -59,8 +59,7 @@ import static jtermios.JTermios.JTermiosLogging.log;
+ public class JTermiosImpl implements jtermios.JTermios.JTermiosInterface {
+ 	private static String DEVICE_DIR_PATH = "/dev/";
+ 	private static final boolean IS64B = NativeLong.SIZE == 8;
+-	static Linux_C_lib_DirectMapping m_ClibDM = new Linux_C_lib_DirectMapping();
+-	static Linux_C_lib m_Clib = m_ClibDM;
++	static Linux_C_lib m_Clib = (Linux_C_lib)Native.loadLibrary("c", Linux_C_lib.class, YJPFunctionMapper.OPTIONS);
+ 
+ 	private final static int TIOCGSERIAL = 0x0000541E;
+ 	private final static int TIOCSSERIAL = 0x0000541F;
+@@ -488,9 +487,9 @@ public class JTermiosImpl implements jtermios.JTermios.JTermiosInterface {
+ 		s[i] = n;
+ 		// the native call depends on weather this is 32 or 64 bit arc
+ 		if (IS64B)
+-			m_ClibDM.memcpy(d, s, (long) 4);
++			m_Clib.memcpy(d, s, (long) 4);
+ 		else
+-			m_ClibDM.memcpy(d, s, (int) 4);
++			m_Clib.memcpy(d, s, (int) 4);
+ 		return d[0];
+ 	}
+ 
+EOF
+fi
+
+msg 'Compiling fixed JTermiosImpl class'
+$JAVAC -d classes -cp "$JARS" purejavacomm/src/jtermios/linux/JTermiosImpl.java
+
+msg 'Injecting fixed classfile into purejavacomm.jar'
+$JAR uf "$STUDIO_DIR"/lib/purejavacomm.jar -C classes 'jtermios/linux/JTermiosImpl.class'
+
 if test -d "$PTY4J_REPO_DIR"; then :; else
   msg 'Cloning pty4j repository'
   git clone --bare "$PTY4J_REPO_URL" "$PTY4J_REPO_DIR"
@@ -199,7 +249,7 @@ fi
 
 if test -d pty4j/native; then :; else
   msg 'Extracting pty4j sources from repository'
-  ( cd "$PTY4J_REPO_DIR" && git archive --format=tar --prefix=pty4j/ "$PTY4J_SHA1" -- native os ) | tar xf -
+  ( cd "$PTY4J_REPO_DIR" && git archive --format=tar --prefix=pty4j/ "$PTY4J_SHA1" -- native os src/com/pty4j/util ) | tar xf -
 fi
 
 if test -f pty4j/native/Makefile_linux.orig; then :; else
@@ -219,12 +269,47 @@ if test -f pty4j/native/Makefile_linux.orig; then :; else
 EOF
 fi
 
+if test -f pty4j/src/com/pty4j/util/PtyUtil.java.orig; then :; else
+  msg 'Patching PtyUtil.java'
+  patch -b -z .orig pty4j/src/com/pty4j/util/PtyUtil.java <<'EOF'
+--- src/com/pty4j/util/PtyUtil.java.orig	2015-02-11 21:11:16.000000000 +0100
++++ src/com/pty4j/util/PtyUtil.java	2015-02-11 21:16:08.000000000 +0100
+@@ -16,6 +16,7 @@
+  */
+ public class PtyUtil {
+   public static final String OS_VERSION = System.getProperty("os.version").toLowerCase();
++  public static final String OS_ARCH = System.getProperty("os.arch").toLowerCase();
+ 
+   private final static String PTY_LIB_FOLDER = System.getenv("PTY_LIB_FOLDER");
+ 
+@@ -100,9 +101,10 @@
+   public static File resolveNativeFile(File parent, String fileName) {
+     File path = new File(parent, getPlatformFolder());
+ 
+-    path = isWinXp() ? new File(path, "xp") :
++    path = isWinXp() ? new File(path, "xp") :	
++	(OS_ARCH.startsWith("ppc") ? new File(path, OS_ARCH) :
+             (Platform.is64Bit() ? new File(path, "x86_64") :
+-                    new File(path, "x86"));
++                    new File(path, "x86")));
+ 
+     return new File(path, fileName);
+   }
+EOF
+fi
+
 if test -f pty4j/os/linux/ppc64/libpty.so; then :; else
   msg 'Building pty4j'
   cd pty4j/native
   make ARCH_X86=ppc ARCH_X86_64=ppc64 CFLAGS="-fpic -D_REENTRANT -D_GNU_SOURCE" ARCH_FLAG_X86=-m32 ARCH_FLAG_X86_64=-m64 -f Makefile_linux
   cd ../..
 fi
+
+msg 'Compiling fixed PtyUtil class'
+$JAVAC -d classes -cp "$JARS" pty4j/src/com/pty4j/util/PtyUtil.java
+
+msg 'Injecting fixed classfile into pty4j-0.3.jar'
+$JAR uf "$STUDIO_DIR"/lib/pty4j-0.3.jar -C classes 'com/pty4j/util/PtyUtil.class'
 
 msg 'Installing pty4j'
 cp -r pty4j/os/linux/ppc* "$STUDIO_DIR"/lib/libpty/linux/
