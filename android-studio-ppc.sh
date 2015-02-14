@@ -23,6 +23,11 @@ PTY4J_REPO_URL='https://github.com/traff/pty4j.git'
 PTY4J_REPO_DIR='pty4j.git'
 PTY4J_SHA1=0501fed201bcb2099719c51c863536907ed1184c
 
+SNAPPY_TAG='1.0.5'
+SNAPPY_REPO_URL='https://github.com/xerial/snappy-java.git'
+SNAPPY_SHA1=fde51d8317dcf92c66ebf151298cc604aff65db5
+SNAPPY_REPO_DIR='snappy.git'
+
 JAVAC="javac"
 JAR="jar"
 
@@ -337,5 +342,69 @@ $JAR uf "$STUDIO_DIR"/lib/pty4j-0.3.jar -C classes 'com/pty4j/util/PtyUtil.class
 
 msg 'Installing pty4j'
 cp -r pty4j/os/linux/ppc* "$STUDIO_DIR"/lib/libpty/linux/
+
+if test -d "$SNAPPY_REPO_DIR"; then :; else
+  msg 'Cloning snappy-java repository'
+  git clone --bare -b "$SNAPPY_TAG" --depth=1 "$SNAPPY_REPO_URL" "$SNAPPY_REPO_DIR"
+fi
+
+if test -d snappy-java/src; then :; else
+  msg 'Extracting snappy-java sources from repository'
+  ( cd "$SNAPPY_REPO_DIR" && git archive --format=tar --prefix=snappy-java/ "$SNAPPY_SHA1" -- ) | tar xf -
+  sed -i -e 's/xvfz/xfz/' snappy-java/Makefile
+fi
+
+if test -f snappy-java/Makefile.common.orig; then :; else
+  msg 'Patching Makefile.common'
+  patch -b -z .orig snappy-java/Makefile.common <<'EOF'
+--- a/Makefile.common
++++ b/Makefile.common
+@@ -41,7 +41,7 @@ endif
+ 
+ # os=Default is meant to be generic unix/linux
+ 
+-known_os_archs := Linux-i386 Linux-amd64 Linux-arm Linux-armhf Mac-i386 Mac-x86_64 FreeBSD-amd64 Windows-x86 Windows-amd64
++known_os_archs := Linux-i386 Linux-amd64 Linux-ppc Linux-ppc64 Linux-arm Linux-armhf Mac-i386 Mac-x86_64 FreeBSD-amd64 Windows-x86 Windows-amd64
+ os_arch := $(OS_NAME)-$(OS_ARCH)
+ 
+ ifeq (,$(findstring $(strip $(os_arch)),$(known_os_archs)))
+@@ -72,6 +72,20 @@ Linux-amd64_LINKFLAGS := -shared -static-libgcc -static-libstdc++
+ Linux-amd64_LIBNAME   := libsnappyjava.so
+ Linux-amd64_SNAPPY_FLAGS  := 
+ 
++Linux-ppc_CXX       := $(CROSS_PREFIX)g++
++Linux-ppc_STRIP     := $(CROSS_PREFIX)strip
++Linux-ppc_CXXFLAGS  := -include lib/inc_linux/jni_md.h -Djniport_h -DWORDS_BIGENDIAN -I$(JAVA_HOME)/include -O2 -fPIC -fvisibility=hidden -m32
++Linux-ppc_LINKFLAGS := -shared -static-libgcc -static-libstdc++
++Linux-ppc_LIBNAME   := libsnappyjava.so
++Linux-ppc_SNAPPY_FLAGS:= 
++
++Linux-ppc64_CXX       := $(CROSS_PREFIX)g++ 
++Linux-ppc64_STRIP     := $(CROSS_PREFIX)strip
++Linux-ppc64_CXXFLAGS  := -include lib/inc_linux/jni_md.h -Djniport_h -DWORDS_BIGENDIAN -I$(JAVA_HOME)/include -O2 -fPIC -fvisibility=hidden -m64
++Linux-ppc64_LINKFLAGS := -shared -static-libgcc -static-libstdc++
++Linux-ppc64_LIBNAME   := libsnappyjava.so
++Linux-ppc64_SNAPPY_FLAGS  := 
++
+ # '-include lib/inc_linux/jni_md.h' is used to force the use of our version,
+ # which defines JNIEXPORT differently; otherwise, since OpenJDK includes
+ # jni_md.h in same directory as jni.h, the include path is ignored when
+EOF
+fi
+
+cd snappy-java
+if test -f target/classes/org/xerial/snappy/native/Linux/ppc/libsnappyjava.so; then :; else
+  msg 'Building snappy-java (32 bit)'
+  make -s native OS_NAME=Linux OS_ARCH=ppc
+fi
+
+if test -f target/classes/org/xerial/snappy/native/Linux/ppc64/libsnappyjava.so; then :; else
+  msg 'Building snappy-java (64 bit)'
+  make -s native OS_NAME=Linux OS_ARCH=ppc64
+fi
+cd ..
+
+msg 'Injecting native libraries into snappy-java-1.0.5.jar'
+$JAR uf "$STUDIO_DIR"/lib/snappy-java-1.0.5.jar -C snappy-java/target/classes 'org/xerial/snappy/native/Linux'
 
 msg "All done, android studio can now be found in $BUILDDIR/$STUDIO_DIR"
