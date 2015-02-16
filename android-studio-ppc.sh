@@ -278,7 +278,7 @@ fi
 
 if test -d pty4j/native; then :; else
   msg 'Extracting pty4j sources from repository'
-  ( cd "$PTY4J_REPO_DIR" && git archive --format=tar --prefix=pty4j/ "$PTY4J_SHA1" -- native os src/com/pty4j/util ) | tar xf -
+  ( cd "$PTY4J_REPO_DIR" && git archive --format=tar --prefix=pty4j/ "$PTY4J_SHA1" -- native os src/com/pty4j/util src/com/pty4j/unix/linux ) | tar xf -
 fi
 
 if test -f pty4j/native/Makefile_linux.orig; then :; else
@@ -327,6 +327,37 @@ if test -f pty4j/src/com/pty4j/util/PtyUtil.java.orig; then :; else
 EOF
 fi
 
+if test -f pty4j/src/com/pty4j/unix/linux/OSFacadeImpl.java.orig; then :; else
+  msg 'Patching OSFacadeImpl.java'
+  patch -b -z .orig pty4j/src/com/pty4j/unix/linux/OSFacadeImpl.java <<'EOF'
+--- src/com/pty4j/unix/linux/OSFacadeImpl.java.orig	2015-02-16 19:38:01.000000000 +0100
++++ src/com/pty4j/unix/linux/OSFacadeImpl.java	2015-02-16 19:57:04.000000000 +0100
+@@ -86,9 +86,19 @@
+ 
+   // CONSTANTS
+ 
+-  private static final int TIOCGWINSZ = 0x00005413;
+-  private static final int TIOCSWINSZ = 0x00005414;
+-  
++  private static final int TIOCGWINSZ;
++  private static final int TIOCSWINSZ;
++
++  static {
++    if (System.getProperty("os.arch").startsWith("ppc")) {
++      TIOCGWINSZ = 0x40087468;
++      TIOCSWINSZ = 0x80087467;
++    } else {
++      TIOCGWINSZ = 0x00005413;
++      TIOCSWINSZ = 0x00005414;
++    }
++  }
++ 
+   // VARIABLES
+ 
+   private static C_lib m_Clib = (C_lib)Native.loadLibrary("c", C_lib.class);
+EOF
+fi
+
 if test -f pty4j/os/linux/ppc64/libpty.so; then :; else
   msg 'Building pty4j'
   cd pty4j/native
@@ -336,9 +367,11 @@ fi
 
 msg 'Compiling fixed PtyUtil class'
 $JAVAC -d classes -cp "$JARS" pty4j/src/com/pty4j/util/PtyUtil.java
+msg 'Compiling fixed OSFacadeImpl class'
+$JAVAC -d classes -cp "$JARS" pty4j/src/com/pty4j/unix/linux/OSFacadeImpl.java
 
-msg 'Injecting fixed classfile into pty4j-0.3.jar'
-$JAR uf "$STUDIO_DIR"/lib/pty4j-0.3.jar -C classes 'com/pty4j/util/PtyUtil.class'
+msg 'Injecting fixed classfiles into pty4j-0.3.jar'
+$JAR uf "$STUDIO_DIR"/lib/pty4j-0.3.jar -C classes 'com/pty4j/util/PtyUtil.class' -C classes 'com/pty4j/unix/linux/OSFacadeImpl.class'
 
 msg 'Installing pty4j'
 cp -r pty4j/os/linux/ppc* "$STUDIO_DIR"/lib/libpty/linux/
