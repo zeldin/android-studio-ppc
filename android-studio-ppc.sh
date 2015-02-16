@@ -1,9 +1,15 @@
 #! /bin/sh
 set -e
 
+if [ -z "$JAVA_HOME" ]; then
+  echo >&2 'Please set $JAVA_HOME before running this script'
+fi
+
 BUILDDIR=build
 
-JNI_INCLUDE="-I/opt/ibm-jdk-bin-1.6.0.9_p2/include/"
+JNI_INCLUDE="-I${JAVA_HOME}/include/"
+PATH="${JAVA_HOME}/bin:${PATH}"
+export PATH
 
 STUDIO_FILENAME='android-studio-ide-135.1641136-linux.zip'
 STUDIO_URL="https://dl.google.com/dl/android/studio/ide-zips/1.0.1/$STUDIO_FILENAME"
